@@ -17,7 +17,7 @@ from vllm.v1.sample.metadata import SamplingMetadata
 logger = init_logger(__name__)
 
 PADDING_SLOT_ID = -1
-
+DRAFT_TOKEN_KEEP_THRESHOLD = 0.5
 
 class EagleProposer:
 
@@ -37,6 +37,7 @@ class EagleProposer:
                                    1,
                                    device=device,
                                    dtype=torch.int32)
+        self.device = device
 
     def propose(
         self,
@@ -108,12 +109,25 @@ class EagleProposer:
         # Generate the remaining draft tokens.
         draft_token_ids_list = [draft_token_ids]
 
+        # NOTE: We assume draft_token_ids = logits.argmax(dim=-1)
+        # Track which batch entries are still active (haven't hit a low-confidence token)
+        active_mask = torch.ones(batch_size, dtype=torch.bool, device=self.device)
+        draft_token_keep_masks_list = []
+
+        current_keep_mask = self._get_draft_token_keep_masks(logits, active_mask)
+        draft_token_keep_masks_list.append(current_keep_mask)
+        active_mask = current_keep_mask
+
         positions = target_positions[last_token_indices]
         hidden_states = hidden_states_fwd[last_token_indices]
         attn_metadata.num_actual_tokens = batch_size
         attn_metadata.max_query_len = 1
         attn_metadata.query_start_loc = self.arange[:batch_size + 1]
         for _ in range(self.num_speculative_tokens - 1):
+            # NOTE: don't modify EAGLE's behavior first
+            # if not active_mask.any():
+            #     break  # All batch entries have stopped, can exit early
+
             # Update the inputs.
             input_ids = draft_token_ids_list[-1]
             positions += 1
@@ -164,9 +178,33 @@ class EagleProposer:
             draft_token_ids = logits.argmax(dim=-1)
             draft_token_ids_list.append(draft_token_ids)
 
+            current_keep_mask = self._get_draft_token_keep_masks(logits, active_mask)
+            draft_token_keep_masks_list.append(current_keep_mask)
+            active_mask = current_keep_mask
+
         # [batch_size, num_speculative_tokens]
         draft_token_ids = torch.stack(draft_token_ids_list, dim=1)
-        return draft_token_ids
+        draft_token_keep_masks = torch.stack(draft_token_keep_masks_list, dim=1)
+        final_draft_token_ids = [
+            draft_token_ids[i][draft_token_keep_masks[i]]
+            for i in range(batch_size)
+        ]
+
+        return final_draft_token_ids
+
+    def _get_draft_token_keep_masks(
+            self,
+            logits: torch.Tensor,
+            active_mask: torch.Tensor,
+        ) -> torch.Tensor:
+        # NOTE: We assume draft_token_ids = logits.argmax(dim=-1)
+        probs = torch.nn.functional.softmax(logits, dim=-1)
+        draft_token_probs = torch.amax(probs, dim=-1)        # [batch]
+        pass_threshold = draft_token_probs >= DRAFT_TOKEN_KEEP_THRESHOLD
+        # Stop adding upon the first threshold fails, i.e. update active tokens only
+        keep_mask = active_mask & pass_threshold
+
+        return keep_mask
 
     @staticmethod
     def prepare_inputs(
