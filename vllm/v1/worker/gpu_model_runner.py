@@ -1262,7 +1262,7 @@ class GPUModelRunner(LoRAModelRunnerMixin):
 
             if self.use_aux_hidden_state_outputs:
                 target_hidden_states = torch.cat(target_hidden_states, dim=-1)
-            draft_token_ids = self.drafter.propose(
+            spec_token_ids = self.drafter.propose(
                 target_token_ids=target_token_ids,
                 target_positions=target_positions,
                 target_hidden_states=target_hidden_states,
@@ -1272,7 +1272,7 @@ class GPUModelRunner(LoRAModelRunnerMixin):
                 block_table=attn_metadata.block_table,
                 sampling_metadata=sampling_metadata,
             )
-            spec_token_ids = draft_token_ids.tolist()
+            # spec_token_ids = draft_token_ids.tolist()
 
         # Clear KVConnector state after all KVs are generated.
         if has_kv_transfer_group():
