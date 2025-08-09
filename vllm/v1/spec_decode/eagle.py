@@ -194,6 +194,8 @@ class EagleProposer:
 
         # Filter and keep only draft tokens with probs above or equals to specified threshold
         draft_token_keep_masks = torch.stack(draft_token_keep_masks_list, dim=1) # [B, T] bool (e.g. B=5, T=10)
+
+        # V0.1: masked_select -> split -> tolist
         # 1) pull out only the kept tokens into a 1D tensor
         flat_kept = draft_token_ids.masked_select(draft_token_keep_masks)
         #    --> 1D, e.g. tensor([ 11, 3967,  369,  11], device='cuda:0')
@@ -211,9 +213,15 @@ class EagleProposer:
         #         tensor([11], device='cuda:0'),
         #         tensor([], device='cuda:0'))
 
-        # (optional) do a map to a list of lists
+        # do a map to a list of lists
         filtered_draft_token_ids = list(map(torch.Tensor.tolist, ragged))
         #    --> [[], [], [11, 3967, 369], [11], []]
+
+        # # V0.2: nested.masked_select -> tolist
+        # ragged = torch.nested.masked_select(draft_token_ids, draft_token_keep_masks)
+        # # tolist() cant be called on NestedTensor at v2.6.0
+        # # filtered_draft_token_ids = filtered_draft_token_ids.tolist()
+        # filtered_draft_token_ids = list(map(torch.Tensor.tolist, ragged))
 
         if self.log_filtering_info:
             kept_rows_truth = [
@@ -222,7 +230,8 @@ class EagleProposer:
             ]
             # assert filtered_draft_token_ids == kept_rows_truth
             print(f"\ndraft_token_keep_masks: {draft_token_keep_masks!r}")
-            print(f"\nrow_lengths: {row_lengths}")
+            print(f"\nragged: {ragged!r}")
+            # print(f"\nrow_lengths: {row_lengths}")
             print(f"\nFiltered: {filtered_draft_token_ids!r}")
             print(f"\nFiltered truth: {kept_rows_truth!r}")
 
