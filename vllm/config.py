@@ -2242,6 +2242,15 @@ class SpeculativeConfig:
                                                   init=True)  # type: ignore
     """The parallel configuration for the draft model initialized internal."""
 
+    enable_draft_token_filtering: bool = field(default=False,
+                                        init=True)  # type: ignore
+    """Flag to enable confidence_based filtering that discard draft tokens below a threshold."""
+    draft_token_filtering_threshold: Optional[float] = 0.1
+    """A threshold where draft tokens with probablities smaller than it will be discarded."""
+    log_filtering_info: bool = field(default=False,
+                                        init=True)  # type: ignore
+    """Print relevant information related to filtering. Will add to performance overheads."""
+
     def compute_hash(self) -> str:
         """
         WARNING: Whenever a new field is added to this config,

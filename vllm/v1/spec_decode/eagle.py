@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import triton
 import triton.language as tl
+from torch.nn.utils.rnn import pad_sequence
 
 from vllm.config import VllmConfig, set_current_vllm_config
 from vllm.forward_context import set_forward_context
@@ -17,7 +18,6 @@ from vllm.v1.sample.metadata import SamplingMetadata
 logger = init_logger(__name__)
 
 PADDING_SLOT_ID = -1
-
 
 class EagleProposer:
 
@@ -37,6 +37,13 @@ class EagleProposer:
                                    1,
                                    device=device,
                                    dtype=torch.int32)
+        self.device = device
+        self.enable_draft_token_filtering = vllm_config.speculative_config.enable_draft_token_filtering
+        # TODO: add CLI check: if enable_draft_token_filtering is true, draft_token_filtering_threshold != None
+        self.draft_token_filtering_threshold = vllm_config.speculative_config.draft_token_filtering_threshold
+        self.log_filtering_info = vllm_config.speculative_config.log_filtering_info
+        if self.log_filtering_info:
+            print(f"Enabled filtering: {self.enable_draft_token_filtering}")
 
     def propose(
         self,
@@ -102,11 +109,20 @@ class EagleProposer:
 
         # Early exit if there is only one draft token to be generated.
         if self.num_speculative_tokens == 1:
+            # TODO: Handle this case!!!
             # [batch_size, 1]
             return draft_token_ids.view(-1, 1)
 
         # Generate the remaining draft tokens.
         draft_token_ids_list = [draft_token_ids]
+
+        # NOTE: We assume draft_token_ids = logits.argmax(dim=-1)
+        # Track which batch entries are still active (haven't hit a low-confidence token)
+        current_keep_mask = torch.ones(batch_size, dtype=torch.bool, device=self.device)
+        draft_token_keep_masks_list = []
+
+        current_keep_mask = self._get_draft_token_keep_masks(logits, current_keep_mask)
+        draft_token_keep_masks_list.append(current_keep_mask)
 
         positions = target_positions[last_token_indices]
         hidden_states = hidden_states_fwd[last_token_indices]
@@ -114,6 +130,7 @@ class EagleProposer:
         attn_metadata.max_query_len = 1
         attn_metadata.query_start_loc = self.arange[:batch_size + 1]
         for _ in range(self.num_speculative_tokens - 1):
+
             # Update the inputs.
             input_ids = draft_token_ids_list[-1]
             positions += 1
@@ -164,9 +181,73 @@ class EagleProposer:
             draft_token_ids = logits.argmax(dim=-1)
             draft_token_ids_list.append(draft_token_ids)
 
+            current_keep_mask = self._get_draft_token_keep_masks(logits, current_keep_mask)
+            draft_token_keep_masks_list.append(current_keep_mask)
+
         # [batch_size, num_speculative_tokens]
         draft_token_ids = torch.stack(draft_token_ids_list, dim=1)
-        return draft_token_ids
+        if self.log_filtering_info:
+            print(f"\nDraft: {draft_token_ids!r}")
+        # Early exit
+        if not self.enable_draft_token_filtering:
+            return draft_token_ids.tolist()
+
+        # Filter and keep only draft tokens with probs above or equals to specified threshold
+        draft_token_keep_masks = torch.stack(draft_token_keep_masks_list, dim=1) # [B, T] bool (e.g. B=5, T=10)
+
+        # V0.1: masked_select -> split -> tolist
+        # 1) pull out only the kept tokens into a 1D tensor
+        flat_kept = draft_token_ids.masked_select(draft_token_keep_masks)
+        #    --> 1D, e.g. tensor([ 11, 3967,  369,  11], device='cuda:0')
+
+        # 2) compute how many tokens each row kept
+        row_lengths = draft_token_keep_masks.sum(dim=1).tolist()
+        #    --> [0, 0, 3, 1, 0]
+
+        # 3) split the flat tensor back into B pieces of those lengths
+        ragged = torch.split(flat_kept, row_lengths, dim=0)
+        #    --> tuple of length B:
+        #        (tensor([], device='cuda:0'),
+        #         tensor([], device='cuda:0'),
+        #         tensor([  11, 3967,  369], device='cuda:0'),
+        #         tensor([11], device='cuda:0'),
+        #         tensor([], device='cuda:0'))
+
+        # do a map to a list of lists
+        filtered_draft_token_ids = list(map(torch.Tensor.tolist, ragged))
+        #    --> [[], [], [11, 3967, 369], [11], []]
+
+        # # V0.2: nested.masked_select -> tolist
+        # ragged = torch.nested.masked_select(draft_token_ids, draft_token_keep_masks)
+        # # tolist() cant be called on NestedTensor at v2.6.0
+        # # filtered_draft_token_ids = filtered_draft_token_ids.tolist()
+        # filtered_draft_token_ids = list(map(torch.Tensor.tolist, ragged))
+
+        if self.log_filtering_info:
+            kept_rows_truth = [
+                draft_token_ids[i][draft_token_keep_masks[i]].tolist()          # 1-D tensor
+                for i in range(batch_size)
+            ]
+            # assert filtered_draft_token_ids == kept_rows_truth
+            print(f"\ndraft_token_keep_masks: {draft_token_keep_masks!r}")
+            print(f"\nragged: {ragged!r}")
+            # print(f"\nrow_lengths: {row_lengths}")
+            print(f"\nFiltered: {filtered_draft_token_ids!r}")
+            print(f"\nFiltered truth: {kept_rows_truth!r}")
+
+        return filtered_draft_token_ids
+
+    def _get_draft_token_keep_masks(
+            self,
+            logits: torch.Tensor,
+            active_mask: torch.Tensor,
+        ) -> torch.Tensor:
+        # NOTE: We assume draft_token_ids = logits.argmax(dim=-1)
+        probs = torch.nn.functional.softmax(logits, dim=-1)
+        draft_token_probs = torch.amax(probs, dim=-1)        # [batch]
+        pass_threshold = draft_token_probs >= self.draft_token_filtering_threshold
+        # Stop adding upon the first threshold fails, i.e. update active tokens only
+        return active_mask & pass_threshold
 
     @staticmethod
     def prepare_inputs(
