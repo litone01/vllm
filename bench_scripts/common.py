@@ -6,7 +6,7 @@ THRESH_COLORS = {
     0.2: "#ff7f0e",  # orange
     0.3: "#2ca02c",  # green
     0.4: "#17becf",  # red
-    0.5: "darkgreen", 
+    0.5: "darkgreen",
     0.6: "#8c564b",  # pink
     0.7: "#e377c2",  # pinke
 }
@@ -58,7 +58,8 @@ def get_eagle_model(model, use_eagle3=False):
         raise ValueError(f"Unsupported model for EAGLE: {model}.")
 
 def get_output_filename(args):
-    return f"results/latency_filtering_{args.enable_draft_token_filtering}_threshold_{args.draft_token_filtering_threshold}_logging_{args.log_filtering_info}_{"sharegpt"}_{args.method}_all_{args.target_model.replace('/', '_')}.json"
+    # TODO: rewrite this! We are getting more and more params
+    return f"results/latency_filtering_{args.enable_draft_token_filtering}_threshold_{args.draft_token_filtering_threshold}_perc_{args.draft_token_filtering_percentage}_{"sharegpt"}_{args.method}_all_{args.target_model.replace('/', '_')}.json"
 
 def get_output_filename_for_plotting(args):
     return f"results/latency_filtering_{args.enable_draft_token_filtering}_threshold_{args.draft_token_filtering_threshold}_{"sharegpt"}_{args.method}_all_{args.target_model.replace('/', '_')}.json"

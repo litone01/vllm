@@ -18,6 +18,7 @@ from vllm.v1.sample.metadata import SamplingMetadata
 logger = init_logger(__name__)
 
 PADDING_SLOT_ID = -1
+DEFAULT_FILTERING_PERCENTAGE = -1 # feature disabled
 
 class EagleProposer:
 
@@ -41,6 +42,7 @@ class EagleProposer:
         self.enable_draft_token_filtering = vllm_config.speculative_config.enable_draft_token_filtering
         # TODO: add CLI check: if enable_draft_token_filtering is true, draft_token_filtering_threshold != None
         self.draft_token_filtering_threshold = vllm_config.speculative_config.draft_token_filtering_threshold
+        self.draft_token_filtering_percentage = vllm_config.speculative_config.draft_token_filtering_percentage
         self.log_filtering_info = vllm_config.speculative_config.log_filtering_info
         if self.log_filtering_info:
             print(f"Enabled filtering: {self.enable_draft_token_filtering}")
@@ -184,6 +186,19 @@ class EagleProposer:
             current_keep_mask = self._get_draft_token_keep_masks(logits, current_keep_mask)
             draft_token_keep_masks_list.append(current_keep_mask)
 
+            # V0.1A: end proposal phase early if more than X% of requests have stopped getting new draft tokens
+            # if self.enable_draft_token_filtering and \
+            #     self.draft_token_filtering_percentage != DEFAULT_FILTERING_PERCENTAGE:
+            #     if (self._should_end_proposal_early(current_keep_mask,
+            #                                         self.draft_token_filtering_percentage)):
+            #         break
+
+            # V0.1B: end proposal phase early if all requests have stopped getting new draft tokens
+            if self.enable_draft_token_filtering and \
+                self.draft_token_filtering_percentage != DEFAULT_FILTERING_PERCENTAGE:
+                if not current_keep_mask.any():
+                    break
+
         # [batch_size, num_speculative_tokens]
         draft_token_ids = torch.stack(draft_token_ids_list, dim=1)
         if self.log_filtering_info:
@@ -231,9 +246,12 @@ class EagleProposer:
             # assert filtered_draft_token_ids == kept_rows_truth
             print(f"\ndraft_token_keep_masks: {draft_token_keep_masks!r}")
             print(f"\nragged: {ragged!r}")
-            # print(f"\nrow_lengths: {row_lengths}")
             print(f"\nFiltered: {filtered_draft_token_ids!r}")
             print(f"\nFiltered truth: {kept_rows_truth!r}")
+            print(f"\nCurrent keep mask: {current_keep_mask!r}")
+            print(f"\n{1 - (current_keep_mask.sum() / current_keep_mask.shape[0])} filtered")
+            print(f"\nEnded proposal early: {self._should_end_proposal_early(current_keep_mask,
+                                                    self.draft_token_filtering_percentage)}")
 
         return filtered_draft_token_ids
 
@@ -248,6 +266,17 @@ class EagleProposer:
         pass_threshold = draft_token_probs >= self.draft_token_filtering_threshold
         # Stop adding upon the first threshold fails, i.e. update active tokens only
         return active_mask & pass_threshold
+
+    def _should_end_proposal_early(
+            self,
+            current_keep_mask: torch.Tensor,
+
+            early_termination_percentage: float,
+    ) -> bool:
+        # get how many sequences in the batch have been filtered
+        percentage_of_filtered_reqs = 1 - (current_keep_mask.sum() / current_keep_mask.shape[0])
+
+        return percentage_of_filtered_reqs >= early_termination_percentage
 
     @staticmethod
     def prepare_inputs(

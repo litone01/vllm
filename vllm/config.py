@@ -2245,11 +2245,14 @@ class SpeculativeConfig:
     enable_draft_token_filtering: bool = field(default=False,
                                         init=True)  # type: ignore
     """Flag to enable confidence_based filtering that discard draft tokens below a threshold."""
-    draft_token_filtering_threshold: Optional[float] = 0.1
+    draft_token_filtering_threshold: Optional[float] = -1
     """A threshold where draft tokens with probablities smaller than it will be discarded."""
     log_filtering_info: bool = field(default=False,
                                         init=True)  # type: ignore
     """Print relevant information related to filtering. Will add to performance overheads."""
+    draft_token_filtering_percentage: Optional[float] = -1
+    """A percentage to end the batched requests in proposal phase early \n
+    if more than or equals to X% of requests with draft tokens have been filtered."""
 
     def compute_hash(self) -> str:
         """

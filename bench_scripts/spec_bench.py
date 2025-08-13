@@ -48,7 +48,8 @@ def parse_args():
     parser.add_argument("--num_spec_tokens", type=int, default=5)
     parser.add_argument("--enable_draft_token_filtering", type=bool, default=False)
     parser.add_argument("--log_filtering_info", type=bool, default=False)
-    parser.add_argument("--draft_token_filtering_threshold", type=float, default=1)
+    parser.add_argument("--draft_token_filtering_threshold", type=float, default=-1)
+    parser.add_argument("--draft_token_filtering_percentage", type=float, default=-1)
 
     return parser.parse_args()
 
@@ -71,6 +72,7 @@ def get_llm(args):
             "enable_draft_token_filtering": args.enable_draft_token_filtering,
             "draft_token_filtering_threshold": args.draft_token_filtering_threshold,
             "log_filtering_info": args.log_filtering_info,
+            "draft_token_filtering_percentage": args.draft_token_filtering_percentage,
         }
 
     llm = LLM(
@@ -122,9 +124,12 @@ def main():
                 "generated_output": outputs[0].outputs[0].text,
                 "finished_reason": outputs[0].outputs[0].finish_reason,
             }
-            with open(get_output_filename(args), "a") as f:
-                f.write(json.dumps(result))
-                f.write("\n")
+            # If it's the logging round, don't create a result.json,
+            # because the duration is usually inaccurate
+            if not args.log_filtering_info:
+                with open(get_output_filename(args), "a") as f:
+                    f.write(json.dumps(result))
+                    f.write("\n")
             latencies.append(duration)
         print(f"Average latency: {sum(latencies) / len(latencies)} seconds")
 
