@@ -207,6 +207,6 @@ shellcheck*/
 csrc/moe/marlin_moe_wna16/kernel_*
 
 # Bench results
-bench_scripts/results/
-bench_scripts/figures/
-logs/
+bench_scripts/results
+bench_scripts/figures
+bench_scripts/logs
