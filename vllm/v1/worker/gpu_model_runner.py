@@ -85,9 +85,9 @@ from .utils import (AttentionGroup, MultiModalBudget, bind_kv_cache,
                     gather_mm_placeholders, initialize_kv_cache_for_kv_sharing,
                     sanity_check_mm_encoder_outputs, scatter_mm_placeholders)
 
-# import sys
-# sys.path.append("/data/lily/vllm-benchmark/")
-from benchmarks.profiler import sd_profiler
+import sys
+sys.path.append("/data/jerry/jerry-vllm-0.10.1-bench/vllm-bench-scripts/")
+from profiler import sd_profiler
 
 if TYPE_CHECKING:
     import xgrammar as xgr
@@ -1603,7 +1603,9 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
 
         # Run the model.
         # Use persistent buffers for CUDA graphs.
-        sd_profiler.start_verify()
+        rank = torch.distributed.get_rank()
+        if rank == 0:
+            sd_profiler.start_verify()
         with set_forward_context(
                 attn_metadata,
                 self.vllm_config,
@@ -1620,7 +1622,8 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
                 inputs_embeds=inputs_embeds,
                 **model_kwargs,
             )
-        sd_profiler.end_verify()
+        if rank == 0:
+            sd_profiler.end_verify()
 
         if self.use_aux_hidden_state_outputs:
             hidden_states, aux_hidden_states = model_output
@@ -1664,7 +1667,8 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
         if scheduler_output.grammar_bitmask is not None:
             self.apply_grammar_bitmask(scheduler_output, logits)
 
-        sd_profiler.start_sample()
+        if rank == 0:
+            sd_profiler.start_sample()
         # Sample the next token and get logprobs if needed.
         sampling_metadata = self.input_batch.sampling_metadata
         if spec_decode_metadata is None:
@@ -1697,7 +1701,8 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
                 sampling_metadata,
             )
             sampler_output.sampled_token_ids = output_token_ids
-        sd_profiler.end_sample()
+        if rank == 0:
+            sd_profiler.end_sample()
 
         num_nans_in_logits = {}
         if envs.VLLM_COMPUTE_NANS_IN_LOGITS:
@@ -1773,7 +1778,8 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
             req_state = self.requests[req_id]
             req_state.output_token_ids.extend(sampled_ids)
 
-        sd_profiler.start_propose()
+        if rank == 0:
+            sd_profiler.start_propose()
         if not self.speculative_config:
             # Speculative decoding is not enabled.
             spec_token_ids = None
@@ -1789,7 +1795,8 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
                 spec_decode_metadata,
                 spec_decode_common_attn_metadata,
             )
-        sd_profiler.end_propose()
+        if rank == 0:
+            sd_profiler.end_propose(True)
 
         self.eplb_step()
 

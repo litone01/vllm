@@ -49,10 +49,9 @@ from vllm.v1.serial_utils import MsgpackDecoder, MsgpackEncoder
 from vllm.v1.structured_output import StructuredOutputManager
 from vllm.version import __version__ as VLLM_VERSION
 
-# import sys
-# sys.path.append("/data/lily/vllm-benchmark/")
-
-from benchmarks.profiler import sd_profiler
+import sys
+sys.path.append("/data/jerry/jerry-vllm-0.10.1-bench/vllm-bench-scripts/")
+from profiler import sd_profiler
 
 logger = init_logger(__name__)
 
