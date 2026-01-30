@@ -1068,12 +1068,18 @@ class ShareGPTDataset(BenchmarkDataset):
                 entry["conversations"][1]["value"],
             )
 
-            prompt = tokenizer.apply_chat_template(
-                [{"role": "user", "content": prompt}],
-                add_generation_prompt=True,
-                tokenize=False,
-                enable_thinking=False,
-            )
+            # Try to use the model's chat_template, fallback to vicuna_v1.1 if not available
+            try:
+                prompt = tokenizer.apply_chat_template(
+                    [{"role": "user", "content": prompt}],
+                    add_generation_prompt=True,
+                    tokenize=False,
+                    enable_thinking=False,
+                )
+            except Exception:
+                # Fallback to Vicuna v1.1 template
+                system_msg = "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions."
+                prompt = f"{system_msg} USER: {prompt} ASSISTANT:"
 
             lora_request = self.get_random_lora_request(
                 max_loras=max_loras, lora_path=lora_path
