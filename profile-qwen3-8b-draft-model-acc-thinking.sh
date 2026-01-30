@@ -34,29 +34,29 @@ cp "$0" "$output_dir/$script_name"
 start_time=$(date +%s)
 
 # Set default values for num_reqs and max_tokens
-num_reqs="1"
-max_tokens="8"
+num_reqs="200"
+max_tokens="32"
 # batch_sizes="1 8 16 32 64 128"
 batch_sizes="1"
 
-# Warmup run
-python bench_latency.py --model "$model" \
-                         --method "none"  \
-                         --dataset "sharegpt" \
-                         --num_spec_tokens "-1" \
-                         --num_reqs "$num_reqs" \
-                         --max_tokens "$max_tokens" \
-                         --is_warmup 2>&1 | tee "$output_dir/warmup.log" > /dev/null
-echo "Warmup done."
+# # Warmup run
+# python bench_latency.py --model "$model" \
+#                          --method "none"  \
+#                          --dataset "sharegpt" \
+#                          --num_spec_tokens "-1" \
+#                          --num_reqs "$num_reqs" \
+#                          --max_tokens "$max_tokens" \
+#                          --is_warmup 2>&1 | tee "$output_dir/warmup.log" > /dev/null
+# echo "Warmup done."
 
 # for dataset in instructcoder gsm8k cnndailymail sharegpt
-for dataset in gsm8k
+for dataset in cnndailymail
 do
     for method in draft_model
     do
         # Set possible spec_tokens values for each method
         if [ "$method" = "draft_model" ]; then
-            spec_tokens_list="3"
+            spec_tokens_list="20"
         elif [ "$method" = "none" ]; then
             spec_tokens_list="-1"
         fi
@@ -69,7 +69,7 @@ do
 
             if [ "$method" = "none" ]; then
                 # Run without draft model for method "none"
-                if python bench_latency.py --model "$model" \
+                if python bench_latency_all-in-one-batch.py --model "$model" \
                     --method "$method" \
                     --dataset "$dataset" \
                     --results_dir "$output_dir" \
@@ -87,7 +87,7 @@ do
                 fi
             else
                 # Run with draft model for other methods
-                if python bench_latency.py --model "$model" \
+                if python bench_latency_all-in-one-batch.py --model "$model" \
                     --draft_model Qwen/Qwen3-0.6B \
                     --method "$method" \
                     --dataset "$dataset" \

@@ -1,4 +1,4 @@
-export CUDA_VISIBLE_DEVICES=0
+export CUDA_VISIBLE_DEVICES=1
 
 export VLLM_DISABLE_COMPILE_CACHE=1
 # Set CUDA path
@@ -34,29 +34,29 @@ cp "$0" "$output_dir/$script_name"
 start_time=$(date +%s)
 
 # Set default values for num_reqs and max_tokens
-num_reqs="1"
-max_tokens="8"
+num_reqs="200"
+max_tokens="32"
 # batch_sizes="1 8 16 32 64 128"
 batch_sizes="1"
 
-# Warmup run
-python bench_latency.py --model "$model" \
-                         --method "none"  \
-                         --dataset "sharegpt" \
-                         --num_spec_tokens "-1" \
-                         --num_reqs "$num_reqs" \
-                         --max_tokens "$max_tokens" \
-                         --is_warmup 2>&1 | tee "$output_dir/warmup.log" > /dev/null
-echo "Warmup done."
+# # Warmup run
+# python bench_latency.py --model "$model" \
+#                          --method "none"  \
+#                          --dataset "sharegpt" \
+#                          --num_spec_tokens "-1" \
+#                          --num_reqs "$num_reqs" \
+#                          --max_tokens "$max_tokens" \
+#                          --is_warmup 2>&1 | tee "$output_dir/warmup.log" > /dev/null
+# echo "Warmup done."
 
 # for dataset in instructcoder gsm8k cnndailymail sharegpt
-for dataset in gsm8k
+for dataset in gsm8k instructcoder cnndailymail sharegpt
 do
     for method in draft_model
     do
         # Set possible spec_tokens values for each method
         if [ "$method" = "draft_model" ]; then
-            spec_tokens_list="3"
+            spec_tokens_list="20"
         elif [ "$method" = "none" ]; then
             spec_tokens_list="-1"
         fi

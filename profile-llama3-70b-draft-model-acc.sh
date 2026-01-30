@@ -1,11 +1,11 @@
-export CUDA_VISIBLE_DEVICES=0
+export CUDA_VISIBLE_DEVICES=1,2,3,7
 
 export VLLM_DISABLE_COMPILE_CACHE=1
 # Set CUDA path
 export CUDA_HOME=/usr/local/cuda-12.8
 export CUDADIR=/usr/local/cuda-12.8
 
-# Add CUDA to PATH (for binaries)
+# Add CUDA to PATH (for binaries
 export PATH=$CUDA_HOME/bin:$PATH
 
 # Add CUDA to LD_LIBRARY_PATH (for libraries)
@@ -18,8 +18,8 @@ export VLLM_ENABLE_V1_MULTIPROCESSING=0
 export VLLM_USE_V1=1
 
 # model=meta-llama/Llama-3.1-8B-Instruct
-# model="meta-llama/Meta-Llama-3-70B-Instruct"
-model="Qwen/Qwen3-8B"
+model="meta-llama/Meta-Llama-3-70B-Instruct"
+# model="Qwen/Qwen3-8B"
 
 # Create a timestamped output directory for this run
 timestamp=$(date +"%Y%m%d_%H%M%S")
@@ -34,29 +34,30 @@ cp "$0" "$output_dir/$script_name"
 start_time=$(date +%s)
 
 # Set default values for num_reqs and max_tokens
-num_reqs="1"
-max_tokens="8"
+num_reqs="200"
+max_tokens="0.5"
 # batch_sizes="1 8 16 32 64 128"
 batch_sizes="1"
 
-# Warmup run
-python bench_latency.py --model "$model" \
-                         --method "none"  \
-                         --dataset "sharegpt" \
-                         --num_spec_tokens "-1" \
-                         --num_reqs "$num_reqs" \
-                         --max_tokens "$max_tokens" \
-                         --is_warmup 2>&1 | tee "$output_dir/warmup.log" > /dev/null
-echo "Warmup done."
+# # Warmup run
+# python bench_latency.py --model "$model" \
+#                          --method "none"  \
+#                          --dataset "sharegpt" \
+#                          --num_spec_tokens "-1" \
+#                          --num_reqs "$num_reqs" \
+#                          --max_tokens "$max_tokens" \
+#                          --is_warmup 2>&1 | tee "$output_dir/warmup.log" > /dev/null
+# echo "Warmup done."
 
 # for dataset in instructcoder gsm8k cnndailymail sharegpt
-for dataset in gsm8k
+for dataset in instructcoder cnndailymail sharegpt
 do
+    # for method in none ngram eagle3
     for method in draft_model
     do
         # Set possible spec_tokens values for each method
         if [ "$method" = "draft_model" ]; then
-            spec_tokens_list="3"
+            spec_tokens_list="20"
         elif [ "$method" = "none" ]; then
             spec_tokens_list="-1"
         fi
@@ -66,6 +67,7 @@ do
             log_file="$output_dir/${dataset}_${method}_${num_spec_tokens}.log"
             echo "====Running with method: $method on dataset: $dataset, num_spec_tokens: $num_spec_tokens" | tee -a "$log_file"
             run_start_time=$(date +%s)
+
 
             if [ "$method" = "none" ]; then
                 # Run without draft model for method "none"
@@ -86,9 +88,9 @@ do
                     echo "FAILURE: $dataset, $method, $num_spec_tokens, Time: ${run_elapsed}s" | tee -a "$output_dir/overview.log"
                 fi
             else
-                # Run with draft model for other methods
                 if python bench_latency.py --model "$model" \
-                    --draft_model Qwen/Qwen3-0.6B \
+                    --draft_model meta-llama/Llama-3.2-1B-Instruct \
+                    --max_model_len 8192 \
                     --method "$method" \
                     --dataset "$dataset" \
                     --results_dir "$output_dir" \
@@ -113,3 +115,5 @@ done
 end_time=$(date +%s)
 elapsed=$((end_time - start_time))
 echo "Total profiling time: ${elapsed} seconds." | tee -a "$output_dir/overview.log"
+
+
